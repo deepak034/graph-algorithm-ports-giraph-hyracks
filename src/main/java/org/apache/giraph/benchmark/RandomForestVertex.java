@@ -11,8 +11,8 @@ import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.PosixParser;
 import org.apache.giraph.graph.BasicVertex;
+import org.apache.giraph.graph.BspUtils;
 import org.apache.giraph.graph.GiraphJob;
-import org.apache.giraph.graph.MutableVertex;
 import org.apache.giraph.graph.Vertex;
 import org.apache.giraph.graph.VertexReader;
 import org.apache.giraph.graph.VertexWriter;
@@ -22,8 +22,8 @@ import org.apache.giraph.lib.TextVertexInputFormat.TextVertexReader;
 import org.apache.giraph.lib.TextVertexOutputFormat.TextVertexWriter;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.ArrayWritable;
-import org.apache.hadoop.io.DoubleWritable;
 import org.apache.hadoop.io.FloatWritable;
+import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Text;
@@ -35,6 +35,8 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
+
+import com.google.common.collect.Maps;
 
 /*
  * Random Forest: a collection of unpruned decision trees
@@ -70,34 +72,7 @@ implements Tool {
 	@Override
 	public void compute(Iterator<MapWritable> msgIterator) throws IOException {
 		
-		/* Start representative vertex behavior */
-		if (getVertexValue().toString() == "R") { 
 	
-			voteToHalt();
-		}
-		/* End representative vertex behavior */
-		
-		/* Start tree classifier vertex behavior */
-		if (getVertexValue().toString() == "C") {
-		
-			voteToHalt();
-		
-		}
-		/* End classifier vertex behavior */
-		
-		/* Start training vertex behavior */
-		if (getVertexValue().toString() == "TR") {
-			
-			voteToHalt();
-		}
-		/* End training vertex behavior */
-
-		/* Start testing vertex behavior */
-		if (getVertexValue().toString() == "TE") {
-	
-			voteToHalt();
-		}
-		/* End testing vertex behavior */
 		
 	}
 
@@ -207,67 +182,87 @@ implements Tool {
 		
 		/* Vertices read so far */
 		private long verticesRead = 0;
-		
+	
 		public RandomForestVertexReader(
 				RecordReader<LongWritable, Text> lineRecordReader) {
 			super(lineRecordReader);
 		}
-		
+	
 		@Override
         public boolean nextVertex() throws IOException, InterruptedException {
 			return getRecordReader().nextKeyValue();
         }
 
-		@Override
 		public BasicVertex<LongWritable, Text, FloatWritable, MapWritable>
-			getCurrentVertex() throws IOException, InterruptedException {
-        	
-				BasicVertex<LongWritable, Text, FloatWritable, MapWritable> vertex = BspUtils
-				.<LongWritable, Text, FloatWritable, MapWritable> createVertex(getContext()
-						.getConfiguration());
-				
-				if(verticesRead == 0) {
-					
-					LongWritable vertexId = new LongWritable(getContext().getConfiguration().getLong(REPRESENTATIVE_VERTEX_ID, -1));
-					Text vertexValue = new Text("R");
-					
-					MapWritable representative = new MapWritable();
-					// FIXME put something here
-					((RandomForestVertex)vertex).setData(representative);
-					
-					Map<LongWritable, FloatWritable> edges = Maps.newHashMap();
-					
-					vertex.initialize(vertexId, vertexValue, edges, null);
-					verticesRead++;
-					return vertex;
-				}
-				
-				Text line = getRecordReader().getCurrentValue();
-				try {
-					
-				} catch (Exception e) {
-					throw new IllegalArgumentException(
-							"next: Couldn't get vertex from line " + line, e);
+		getCurrentVertex() throws IOException, InterruptedException {
+		
+			BasicVertex<LongWritable, Text, FloatWritable, MapWritable> vertex = BspUtils
+			.<LongWritable, Text, FloatWritable, MapWritable> createVertex(getContext()
+					.getConfiguration());
 			
-				}
+			if(verticesRead == 0) {
+				
+				LongWritable vertexId = new LongWritable(getContext().getConfiguration().getLong(REPRESENTATIVE_VERTEX_ID, -1));
+				Text vertexValue = new Text("R");
+				
+				MapWritable representative = new MapWritable();
+				((RandomForestVertex)vertex).setData(representative);
+				
+				Map<LongWritable, FloatWritable> edges = Maps.newHashMap();
+				
+				vertex.initialize(vertexId, vertexValue, edges, null);
+				verticesRead++;
 				return vertex;
 			}
-			
-        }
+		
+			Text line = getRecordReader().getCurrentValue();
+			try {
+				
+				// Read data tokens
+				StringTokenizer tokenizer = new StringTokenizer(line.toString(), ",");
+				LongWritable vertexId = new LongWritable(new Long(verticesRead));
+				
+				// Initialize data vertex with data
+				Text vertexValue = new Text("TR");
+				
+				MapWritable dataVertex = new MapWritable();
+				
+				FloatWritable[] attributes = new FloatWritable[tokenizer.countTokens()];
+				int counter = 0;
+				while (tokenizer.hasMoreTokens()) {
+					attributes[counter++] = new FloatWritable(Float.parseFloat(tokenizer.nextToken()));
+				}
+				
+				dataVertex.put(new Text("data"), new ArrayWritable(FloatWritable.class, attributes));
+				((RandomForestVertex)vertex).setData(dataVertex);
+				
+				// Create edge map
+				Map<LongWritable, FloatWritable> edges = Maps.newHashMap();
+				edges.put(new LongWritable(getContext().getConfiguration().getLong(REPRESENTATIVE_VERTEX_ID, -1)), new FloatWritable(3.0f));
+				
+				vertex.initialize(vertexId, vertexValue, edges, null);
+				verticesRead++;
+				
+			} catch (Exception e) {
+				throw new IllegalArgumentException(
+						"next: Couldn't get vertex from line " + line, e);
+			}
+			return vertex;
+		
+		}
 		
 		@Override
-        public void close() throws IOException {
-            super.close();
-            getContext().getConfiguration().setLong(LARGEST_VERTEX_ID, largestVertexId);
-        }
-	
+		public void close() throws IOException {
+			super.close();
+		}
+
 	}
 	
 	public static class RandomForestVertexInputFormat extends
-	TextVertexInputFormat<LongWritable, MapWritable, FloatWritable> {
+	TextVertexInputFormat<LongWritable, Text, FloatWritable, MapWritable> {
 		
 		@Override
-		public VertexReader<LongWritable, MapWritable, FloatWritable> 
+		public VertexReader<LongWritable, Text, FloatWritable, MapWritable> 
 		createVertexReader(InputSplit split, TaskAttemptContext context) 
 		throws IOException {
 			
@@ -275,8 +270,6 @@ implements Tool {
 		}
 	}
 	
-	
-
 	public static class RandomForestVertexOutputFormat extends
 	TextVertexOutputFormat<LongWritable, MapWritable, FloatWritable>{
 
@@ -306,9 +299,9 @@ implements Tool {
 			// Only record current vertex if it is a tree node, vs a training/testing set node
 			if (vertex.getVertexValue().get("type").toString() == "R") {
 				
-				Double accuracy = ((DoubleWritable) vertex.getVertexValue().get("accuracy")).get();
+				//Double accuracy = ((DoubleWritable) vertex.getVertexValue().get("accuracy")).get();
 				
-				Text output = new Text(100*accuracy + "");
+				Text output = new Text("Just a test output");
 				getRecordWriter().write(new Text(output), null);
 				
 			}
