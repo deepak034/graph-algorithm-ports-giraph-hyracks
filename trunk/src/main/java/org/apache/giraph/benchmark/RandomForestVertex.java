@@ -232,7 +232,7 @@ implements Tool {
 					Text vertexValue = new Text("R");
 					
 					MapWritable representative = new MapWritable();
-					// FIXME put something here eventually. 
+					// FIXME put something here
 					((RandomForestVertex)vertex).setData(representative);
 					
 					Map<LongWritable, FloatWritable> edges = Maps.newHashMap();
@@ -242,72 +242,25 @@ implements Tool {
 					return vertex;
 				}
 				
-				
+				Text line = getRecordReader().getCurrentValue();
+				try {
+					
+				} catch (Exception e) {
+					throw new IllegalArgumentException(
+							"next: Couldn't get vertex from line " + line, e);
+			
+				}
+				return vertex;
+			}
+			
         }
 		
 		@Override
-		public boolean next(
-				MutableVertex<LongWritable, MapWritable, FloatWritable, ?> vertex)
-				throws IOException, InterruptedException {
-			
-			// If no more values in record, return valse
-			if (!getRecordReader().nextKeyValue()) {
-				return false;
-			}
-			
-			// If no vertices are read, create root node
-			if (verticesRead == 0) {
-				
-				// Initialize root vertex
-				vertex.setVertexId(new LongWritable(-1L));
-				
-				MapWritable value = new MapWritable();
-				value.put(new Text("type"), new Text("R"));
-				value.put(new Text("accuracy"), new DoubleWritable(0.0));
-				
-				vertex.setVertexValue(value);
-			
-				verticesRead++;
-				
-				return true;
-			} 
-			
-			// Create Data Vertices from Input Data
-			Text line = getRecordReader().getCurrentValue();
-			try {
-				
-				// Parse datapoint values
-				StringTokenizer tokenizer = new StringTokenizer(line.toString(), ",");
-				
-				// Create data vertex
-				vertex.setVertexId(new LongWritable(verticesRead));
-				
-				MapWritable dataVertex = new MapWritable();
-				dataVertex.put(new Text("type"), new Text("TR"));
-				
-				// Read data attributes (must be numeric)
-				FloatWritable[] attributes = new FloatWritable[tokenizer.countTokens()]; 
-				int counter = 0;
-				while (tokenizer.hasMoreTokens()) {
-					attributes[counter++] = new FloatWritable(Float.parseFloat(tokenizer.nextToken()));
-				}
-				dataVertex.put(new Text("data"), new ArrayWritable(FloatWritable.class, attributes));
-				
-				vertex.setVertexValue(dataVertex);
-
-				// Create an edge from this data node to the Root node
-				vertex.addEdge(new LongWritable(-1L), new FloatWritable(1.0f)); 
-				
-				verticesRead++;
-
-			} catch (Exception e) {
-				throw new IllegalArgumentException(
-						"next: Couldn't get vertex from line " + line, e);
-			}
-			
-			return true;
-		}
-
+        public void close() throws IOException {
+            super.close();
+            getContext().getConfiguration().setLong(LARGEST_VERTEX_ID, largestVertexId);
+        }
+	
 	}
 	
 	public static class RandomForestVertexInputFormat extends
