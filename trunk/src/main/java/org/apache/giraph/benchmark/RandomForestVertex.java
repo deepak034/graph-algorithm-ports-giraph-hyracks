@@ -57,6 +57,13 @@ implements Tool {
 		this.forestData = data;
 	}
 	
+	public static class RandomForestWritableAdaptation {
+		
+		/* Constructor adapter */
+		public RandomForestWritableAdaptation() {}
+		
+	}
+	
 	/* How many attributes there are in our dataset */
 	public static String ATTRIBUTE_COUNT = "RandomForestVertex.attributeCount";
 
@@ -75,14 +82,111 @@ implements Tool {
 		/* Start representative vertex behavior */
 		if (getVertexValue().toString() == "R") { 
 	
-			voteToHalt();
+			// On superstep 0, create Forest Vertices
+			if (getSuperstep() == 0) {
+				
+				// Get quantity of existing vertices, quantity of trees to build
+				long forest_vertex_id = getNumVertices() + 2;
+				int trees_to_build = getConf().getInt(FOREST_SIZE, -1);
+				
+				// Initialize test result tracker
+				MapWritable tracker = new MapWritable();
+				this.forestData.put(new Text("expected_classification"), tracker);
+				
+				// Build random forest by creating vertices
+				for (long i = forest_vertex_id; i < trees_to_build; i++) {
+					
+					// Create forest vertex
+					
+					
+					// Create link from representative node to vertex
+					
+				}
+			}
+			
+			// On superstep 1, receive, combine, and pass on training data
+			else if (getSuperstep() == 1) {
+				
+				// Receive training data
+				MapWritable training_data = new MapWritable();
+				while (msgIterator.hasNext()) {
+					
+					// If coming message from a vertex of type TR, 
+					// add to training_data message
+					MapWritable message = msgIterator.next();
+					
+					if (message.containsKey("TR")) {
+						
+						training_data.put((LongWritable)message.get("vertexId"), 
+								(ArrayWritable)message.get("TR"));
+					}
+				}
+				
+				// Send training data to classification forest
+				MapWritable message_training_data = new MapWritable();
+				message_training_data.put(getVertexValue(), training_data);
+				this.sendMsgToAllEdges(message_training_data);
+			}
+			
+			// On superstep 2, receive, combine, and pass on testing data
+			else if (getSuperstep() == 2) {
+				
+				// Testing data
+				MapWritable testing_data = new MapWritable();
+				while (msgIterator.hasNext()) {
+					
+					// If coming message from a vertex of type TR, 
+					// add to training_data message
+					MapWritable message = msgIterator.next();
+					
+					if (message.containsKey("TE")) {
+						
+						// Add testing data to outgoing message container
+						testing_data.put((LongWritable)message.get("vertexId"), 
+								((ArrayWritable)message.get("TE")));
+					
+						// Add expected result of test to tracker
+						((MapWritable)forestData.get("expected_classification")).put((LongWritable)message.get("vertexId"), 
+								((ArrayWritable)message.get("TE")).get()[0]);
+					}
+				}
+				
+				// Send training data to classification forest
+				MapWritable message_testing_data = new MapWritable();
+				message_testing_data.put(getVertexValue(), testing_data);
+				this.sendMsgToAllEdges(message_testing_data);
+			}
+			
+			// On superstep 4, receive and tally votes from forest 
+			else if (getSuperstep() == 4) {
+				
+				// Once tally complete, halt algorithm
+				voteToHalt();
+			}
 		}
 		/* End representative vertex behavior */
 		
 		/* Start tree classifier vertex behavior */
 		if (getVertexValue().toString() == "C") {
 		
-			voteToHalt();
+			// The tree comes into existence on superstep 1, 
+			// so nothing happens until SS2 when training begins.
+			
+			// Training Behavior: Superstep 2
+			// Receive training data and run training algorithm
+			if (getSuperstep() == 2) {
+				
+			}
+			
+			// Testing Behavior: Superstep 3
+			// Receive testing data and classify, sending a results message
+			// to representative vertex for voting.
+			// Once no testing data is left, vote to halt.
+			if (getSuperstep() == 3) {
+				
+				// Once classification is complete, vote to halt.
+				voteToHalt();
+			}
 		
 		}
 		/* End classifier vertex behavior */
