@@ -15,8 +15,6 @@ import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.HelpFormatter;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.PosixParser;
-import org.apache.giraph.benchmark.RandomForestVertex.RandomForestVertexReader;
-import org.apache.giraph.benchmark.RandomForestVertex.RandomForestVertexWriter;
 import org.apache.giraph.graph.BasicVertex;
 import org.apache.giraph.graph.BspUtils;
 import org.apache.giraph.graph.GiraphJob;
@@ -36,15 +34,14 @@ import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.io.Writable;
-import org.apache.hadoop.mapred.FileOutputFormat;
-import org.apache.hadoop.mapred.RecordReader;
-import org.apache.hadoop.mapred.RecordWriter;
 import org.apache.hadoop.mapreduce.InputSplit;
+import org.apache.hadoop.mapreduce.RecordReader;
+import org.apache.hadoop.mapreduce.RecordWriter;
 import org.apache.hadoop.mapreduce.TaskAttemptContext;
 import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
-
 import com.google.common.collect.Maps;
 
 /**
@@ -80,7 +77,7 @@ import com.google.common.collect.Maps;
  * @param <M> Message Value
  */
 public class DecisionTreeNodeVertex extends
-Vertex<LongWritable, MapWritable, FloatWritable, MapWritable>
+Vertex<LongWritable, Text, FloatWritable, MapWritable>
 implements Tool {
 
 	// Quantity of training cases
@@ -89,15 +86,8 @@ implements Tool {
 	// Position of target attribute in input arrays
 	public static String TARGET_ATTRIBUTE_POSITION = "DecisionTreeNodeVertex.targetAttributePosition";
 	
-	/**
-	 * getVertexType
-	 * 
-	 * @return type of this vertex
-	 */
-	private String getVertexType() {
-		
-		return ((Text) getVertexValue().get(new Text("type"))).toString();
-		
+	public void setData(MapWritable data) {
+		// FIXME
 	}
 	
 	/* Begin DecisionTreeNode behavior */
@@ -825,14 +815,14 @@ implements Tool {
 	 */
 	
 	public static class DecisionTreeVertexReader extends
-	TextVertexReader<LongWritable, MapWritable, FloatWritable, MapWritable> {
+	TextVertexReader<LongWritable, Text, FloatWritable, MapWritable> {
 		
 		/* Vertices read so far */
 		private long verticesRead = 0;
 	
 		public DecisionTreeVertexReader(
 				RecordReader<LongWritable, Text> lineRecordReader) {
-			super((org.apache.hadoop.mapreduce.RecordReader<LongWritable, Text>) lineRecordReader);
+			super(lineRecordReader);
 		}
 	
 		@Override
@@ -840,21 +830,25 @@ implements Tool {
 			return getRecordReader().nextKeyValue();
         }
 
-		public BasicVertex<LongWritable, MapWritable, FloatWritable, MapWritable>
+		public BasicVertex<LongWritable, Text, FloatWritable, MapWritable>
 		getCurrentVertex() throws IOException, InterruptedException {
 		
-			BasicVertex<LongWritable, MapWritable, FloatWritable, MapWritable> vertex = BspUtils
-			.<LongWritable, MapWritable, FloatWritable, MapWritable> createVertex(getContext()
+			BasicVertex<LongWritable, Text, FloatWritable, MapWritable> vertex = BspUtils
+			.<LongWritable, Text, FloatWritable, MapWritable> createVertex(getContext()
 					.getConfiguration());
 			
 			if(verticesRead == 0) {
 				
+				// Create representative/root vertex
 				LongWritable vertexId = new LongWritable(-1L);
 				Text vertexValue = new Text("R");
 				
+				// Storage container for decision tree node
 				MapWritable representative = new MapWritable();
+				// FIXME Refactor
 				((DecisionTreeNodeVertex)vertex).setData(representative);
 				
+				// Set edges
 				Map<LongWritable, FloatWritable> edges = Maps.newHashMap();
 				
 				vertex.initialize(vertexId, vertexValue, edges, null);
@@ -874,6 +868,7 @@ implements Tool {
 				
 				MapWritable dataVertex = new MapWritable();
 				
+				// Read classification datapoints
 				FloatWritable[] attributes = new FloatWritable[tokenizer.countTokens()];
 				int counter = 0;
 				while (tokenizer.hasMoreTokens()) {
@@ -881,11 +876,11 @@ implements Tool {
 				}
 				
 				dataVertex.put(new Text("data"), new ArrayWritable(FloatWritable.class, attributes));
-				((RandomForestVertex)vertex).setData(dataVertex);
+				((DecisionTreeNodeVertex)vertex).setData(dataVertex);
 				
-				// Create edge map
+				// Create edge map FIXME edgeweight
 				Map<LongWritable, FloatWritable> edges = Maps.newHashMap();
-				edges.put(new LongWritable(-1L), new FloatWritable(3.0f));
+				edges.put(new LongWritable(-1L), new FloatWritable(1.0f));
 				
 				vertex.initialize(vertexId, vertexValue, edges, null);
 				verticesRead++;
@@ -913,7 +908,7 @@ implements Tool {
 		createVertexReader(InputSplit split, TaskAttemptContext context) 
 		throws IOException {
 			
-			return new RandomForestVertexReader(textInputFormat.createRecordReader(split, context));
+			return new DecisionTreeVertexReader(textInputFormat.createRecordReader(split, context));
 		}
 	}
 	
@@ -925,7 +920,7 @@ implements Tool {
 		createVertexWriter(TaskAttemptContext context) throws IOException,
 				InterruptedException {
 			RecordWriter<Text, Text> recordWriter = textOutputFormat.getRecordWriter(context);
-			return new RandomForestVertexWriter(recordWriter);
+			return new DecisionTreeVertexWriter(recordWriter);
 		}
 
 	}
@@ -946,7 +941,7 @@ implements Tool {
 			// Only record current vertex if it is a tree node, vs a training/testing set node
 			if (vertex.getVertexValue().toString() == "R") {
 				
-				//Double accuracy = ((DoubleWritable) vertex.getVertexValue().get("accuracy")).get();
+				//FIXME Double accuracy = ((DoubleWritable) vertex.getVertexValue().get("accuracy")).get();
 				
 				Text output = new Text("Just a test output");
 				getRecordWriter().write(new Text(output), null);
