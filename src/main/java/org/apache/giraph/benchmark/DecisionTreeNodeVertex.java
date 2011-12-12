@@ -33,7 +33,6 @@ import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.LongWritable;
 import org.apache.hadoop.io.MapWritable;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.io.Writable;
 import org.apache.hadoop.mapreduce.InputSplit;
 import org.apache.hadoop.mapreduce.RecordReader;
 import org.apache.hadoop.mapreduce.RecordWriter;
@@ -42,6 +41,7 @@ import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
+
 import com.google.common.collect.Maps;
 
 /**
@@ -86,8 +86,14 @@ implements Tool {
 	// Position of target attribute in input arrays
 	public static String TARGET_ATTRIBUTE_POSITION = "DecisionTreeNodeVertex.targetAttributePosition";
 	
+	private MapWritable classificationData;
+	
 	public void setData(MapWritable data) {
-		// FIXME
+		this.classificationData = data;
+	}
+	
+	public MapWritable getData() {
+		return classificationData;
 	}
 	
 	/* Begin DecisionTreeNode behavior */
@@ -97,26 +103,13 @@ implements Tool {
 	 * 
 	 * Adds a destination vertex for an attribute value decision
 	 * 
-	 * @param Float decision
+	 * @param FloatWritable decision
 	 * @param LongWritable destination
 	 */
-	public void addChildNode (Float decision, LongWritable destination) {
+	public void addChildNode (FloatWritable decision, LongWritable destination) {
 
-		MapWritable children;
-		
-		if (getVertexValue().containsKey(new Text("children"))) {
-			
-			children = (MapWritable) getVertexValue().get(new Text("children"));
-		
-		} else {
-			
-			children = new MapWritable();
-			
-		}
-		
-		children.put(new FloatWritable(decision), destination);
-		
-		updateVertexValue(new Text("children"), children);
+		((MapWritable)classificationData.get("children")).put(decision, destination);
+	
 	}
 	
 	/**
@@ -126,9 +119,9 @@ implements Tool {
 	 * 
 	 * @param attributeKey
 	 */
-	public void setSplitAttributeKey (Integer attributeKey) {
+	public void setSplitAttributeKey (IntWritable attributeKey) {
 		
-		updateVertexValue(new Text("classifyBy"), new IntWritable(attributeKey));
+		classificationData.put(new Text("classifyBy"), attributeKey);
 	
 	}
 	
@@ -140,13 +133,14 @@ implements Tool {
 	 * @param attributes
 	 * @return attributes - split
 	 */
-	public ArrayList<Integer> excludeSplitAttributeKey(ArrayList<Integer> attributes) {
+	public ArrayList<IntWritable> excludeSplitAttributeKey(ArrayList<IntWritable> attributes) {
 		
 		// Get split key
-		Integer split = ((IntWritable) getVertexValue().get(new Text("classifyBy"))).get();
+		IntWritable split = (IntWritable) classificationData.get(new Text("classifyBy"));
 		
 		// Return attribute list without split key
 		attributes.remove(attributes.indexOf(split));
+		
 		return attributes;
 	}
 	
@@ -161,12 +155,12 @@ implements Tool {
 	 * @param ArrayList<Integer> attributeKeys
 	 * @return Set<Float> of attribute value decision 
 	 */
-	public Set<Float> growDecisionTree(ArrayList<ArrayList<Float>> data, 
-			int targetAttribute,
-			ArrayList<Integer> attributeKeys) {
+	public Set<FloatWritable> growDecisionTree(ArrayList<ArrayList<FloatWritable>> data, 
+			IntWritable targetAttribute,
+			ArrayList<IntWritable> attributeKeys) {
 		
 		// Initialize value decisions
-		Set<Float> decisions = new HashSet<Float>();
+		Set<FloatWritable> decisions = new HashSet<FloatWritable>();
 		
 		// If there is no data, return empty decisions list
 		if (data.size() == 0) {
@@ -174,13 +168,13 @@ implements Tool {
 		}
 		
 		// Values of target attribute
-		ArrayList<Float> targetAttributeValues = new ArrayList<Float>();
-		for (ArrayList<Float> datapoint : data) {
-			targetAttributeValues.add(datapoint.get(targetAttribute));
+		ArrayList<FloatWritable> targetAttributeValues = new ArrayList<FloatWritable>();
+		for (ArrayList<FloatWritable> datapoint : data) {
+			targetAttributeValues.add(datapoint.get(targetAttribute.get()));
 		}
 		
 		// Compute majority value
-		Float majorityValue = this.majorityValue(targetAttributeValues);
+		Float majorityValue = ((FloatWritable)majorityValue(targetAttributeValues)).get();
 		
 		// If there are no attributes, return empty set
 		if (majorityValue == -1.0f) {
@@ -189,14 +183,14 @@ implements Tool {
 		
 		// If only 1 attribute, return default value
 		if (attributeKeys.size() == 1) {
-			decisions.add(majorityValue);
+			decisions.add(new FloatWritable(majorityValue));
 			return decisions;
 		}
 		
 		// If all of the target attributes have one value, then return this value
 		// as classification
 		if (this.allElementValuesSame(targetAttributeValues)) {
-			decisions.add(majorityValue);
+			decisions.add(new FloatWritable(majorityValue));
 			return decisions;
 		}
 		
@@ -204,11 +198,11 @@ implements Tool {
 		else {
 		
 			// Select best attribute upon which to classify
-			Integer best = this.chooseSplitAttribute(data, targetAttribute, attributeKeys);
+			IntWritable best = this.chooseSplitAttribute(data, targetAttribute, attributeKeys);
 			
 			// If computation of best attribute fails, return majority value set
-			if (best == -1) {
-				decisions.add(majorityValue);
+			if (best.get() == -1) {
+				decisions.add(new FloatWritable(majorityValue));
 				return decisions;
 			}
 			
@@ -229,29 +223,29 @@ implements Tool {
 	 * @param AList<AList<Float>> 	targetAttributeValues
 	 * @return majority				Majority value of target attribute
 	 */
-	public Float majorityValue (ArrayList<Float> targetAttributeValues) {
+	public FloatWritable majorityValue (ArrayList<FloatWritable> targetAttributeValues) {
 		
-		// Initialize majority value tracker
+		// Initialize majority value tracker of FloatWritable -> IntegerWritable
 		Map<Float, Integer> tracker = new HashMap<Float, Integer>();
 		
 		// Initialize Majority key
 		Float majority = -1.0f;
 		
 		// Count up occurrences of target value
-		for (Float attributeValue : targetAttributeValues) {
+		for (FloatWritable attributeValue : targetAttributeValues) {
 			
 			// Add frequency of attribute value to tracker
-			if (!tracker.containsKey(attributeValue)) {
+			if (!tracker.containsKey(attributeValue.get())) {
 				
 				// Compute frequency of attribute value
 				int frequency = Collections.frequency(targetAttributeValues, attributeValue);
 				
 				// Add frequency to tracker
-				tracker.put(attributeValue, frequency);
+				tracker.put(attributeValue.get(), frequency);
 				
 				// Check against majority
 				if (!tracker.containsKey(majority) || frequency > tracker.get(majority)) {
-					majority = attributeValue;
+					majority = attributeValue.get();
 				}
 						
 			}
@@ -259,7 +253,7 @@ implements Tool {
 		}
 		
 		// Return majority value in this dataset for target attribute
-		return majority;
+		return new FloatWritable(majority);
 	}
 	
 	/**
@@ -270,7 +264,7 @@ implements Tool {
 	 * @param AList<Float> elements
 	 * @return true/false
 	 */
-	public boolean allElementValuesSame(ArrayList<Float> elements) {
+	public boolean allElementValuesSame(ArrayList<FloatWritable> elements) {
 		
 		// Frequency of first element must be equal to size of list
 		return Collections.frequency(elements, elements.get(0)) == elements.size();
@@ -286,14 +280,14 @@ implements Tool {
 	 * @param Integer attribute
 	 * @return Set<Float> values
 	 */
-	public Set<Float> getAttributeValues(ArrayList<ArrayList<Float>> data, Integer attribute) {
+	public Set<FloatWritable> getAttributeValues(ArrayList<ArrayList<FloatWritable>> data, IntWritable attribute) {
 		
 		// Create set of integers
-		Set<Float> possibleValues = new HashSet<Float>();
+		Set<FloatWritable> possibleValues = new HashSet<FloatWritable>();
 		
 		// Add all possible values of target attribute
-		for (ArrayList<Float> datapoint : data) {
-			possibleValues.add(datapoint.get(attribute));
+		for (ArrayList<FloatWritable> datapoint : data) {
+			possibleValues.add(datapoint.get(attribute.get()));
 		}
 		
 		// Return set of possible values
@@ -310,22 +304,22 @@ implements Tool {
 	 * @param attributes
 	 * @return
 	 */
-	public Integer chooseSplitAttribute (ArrayList<ArrayList<Float>> data,
-			Integer targetAttribute,
-			ArrayList<Integer> attributes) {
+	public IntWritable chooseSplitAttribute (ArrayList<ArrayList<FloatWritable>> data,
+			IntWritable targetAttribute,
+			ArrayList<IntWritable> attributes) {
 		
 		// Initialize best attribute at -1;
 		Integer bestSplitAttribute = -1;
-		Double maxInformationGain = 0.0;
+		Float maxInformationGain = 0.0f;
 		
 		// Compute gain of all attributes except target attribute
-		for (Integer attribute : attributes) {
+		for (IntWritable attribute : attributes) {
 			
 			// Compute gains and compare with existing maximum 
-			if (attribute.intValue() != targetAttribute.intValue()) {
+			if (attribute.get() != targetAttribute.get()) {
 				
 				// Compute gain from splitting data on this attribute
-				Double gain = this.calculateInformationGain(data, attribute, targetAttribute);
+				Float gain = calculateInformationGain(data, attribute, targetAttribute);
 				
 				// Compare with existing best information gain, updating best split attribute
 				// if greater
@@ -334,13 +328,13 @@ implements Tool {
 					maxInformationGain = gain;
 					
 					// Update best split attribute
-					bestSplitAttribute = attribute;
+					bestSplitAttribute = attribute.get();
 				}
 			}
 			
 		}
 		
-		return bestSplitAttribute;
+		return new IntWritable(bestSplitAttribute);
 		
 	}
 	
@@ -353,36 +347,36 @@ implements Tool {
 	 * @param Integer targetAttribute
 	 * @return Double entropy
 	 */
-	public Double calculateEntropy(ArrayList<ArrayList<Float>> data, Integer targetAttribute) {
+	public FloatWritable calculateEntropy(ArrayList<ArrayList<FloatWritable>> subset, IntWritable targetAttribute) {
 		
 		// Create map of value frequencies for this attribute
-		Map<Float, Double> valueFrequency = new HashMap<Float, Double>();
+		Map<Float, Float> valueFrequency = new HashMap<Float, Float>();
 		
 		// Initialize entropy at 0
-		Double dataEntropy = 0.0;
+		Float dataEntropy = 0.0f;
 		
 		// Calculate the frequency of values of the target attribute for each data record
-		for (ArrayList<Float> datapoint : data) {
+		for (ArrayList<FloatWritable> datapoint : subset) {
 			
 			// Get value of target attribute at this datapoint
-			Float targetValue = datapoint.get(targetAttribute);
+			Float targetValue = ((FloatWritable)datapoint.get(targetAttribute.get())).get();
 			
 			// If a value for this value exists, increment frequency
 			if (valueFrequency.containsKey(targetValue)) {
-				valueFrequency.put(targetValue, valueFrequency.get(targetValue) + 1.0);
+				valueFrequency.put(targetValue, valueFrequency.get(targetValue) + 1.0f);
 				
 			// Otherwise, create a new entry with a count of 1
 			} else {
-				valueFrequency.put(targetValue, 1.0);
+				valueFrequency.put(targetValue, 1.0f);
 			}
 		}
 		
 		// Calculate the entropy of the data for the target attribute
-		for (Double frequency : valueFrequency.values()) {
-			dataEntropy += (-frequency/data.size()) * (Math.log(frequency/data.size()) / Math.log(2));
+		for (Float frequency : valueFrequency.values()) {
+			dataEntropy += (-frequency/subset.size()) * new Float(Math.log(frequency/subset.size()) / Math.log(2));
 		}
 		
-		return dataEntropy;
+		return new FloatWritable(dataEntropy);
 	}
 	
 	/**
@@ -396,29 +390,29 @@ implements Tool {
 	 * @param Integer targetAttribute
 	 * @return Double infoGain
 	 */
-	public Double calculateInformationGain(ArrayList<ArrayList<Float>> data,
-			Integer splitAttribute, Integer targetAttribute) {
+	public Float calculateInformationGain(ArrayList<ArrayList<FloatWritable>> data,
+			IntWritable splitAttribute, IntWritable targetAttribute) {
 		
 		// Initialize value frequency
-		Map<Float, Double> valueFrequency = new HashMap<Float, Double>();
+		Map<Float, Float> valueFrequency = new HashMap<Float, Float>();
 		
 		// Initialize subset entropy
-		Double subsetEntropy = 0.0;
+		Float subsetEntropy = 0.0f;
 		
 		// Calculate frequencies values of split attribute
-		for (ArrayList<Float> datapoint : data) {
+		for (ArrayList<FloatWritable> datapoint : data) {
 			
 			// Get target value for split attribute from datapoint
-			Float targetValue = datapoint.get(splitAttribute);
+			FloatWritable targetValue = datapoint.get(splitAttribute.get());
 			
 			// If already existing, increment frequency
-			if (valueFrequency.containsKey(targetValue)) {
+			if (valueFrequency.containsKey(targetValue.get())) {
 				
-				valueFrequency.put(targetValue, valueFrequency.get(targetValue) + 1.0);
+				valueFrequency.put(targetValue.get(), valueFrequency.get(targetValue.get()) + 1.0f);
 				
 			// Otherwise create new entry
 			} else {
-				valueFrequency.put(targetValue, 1.0);
+				valueFrequency.put(targetValue.get(), 1.0f);
 			}
 		
 		}
@@ -428,23 +422,23 @@ implements Tool {
 		for (Float attributeValue : valueFrequency.keySet()) {
 			
 			// Calculate probability of this value occurring in the training data
-			Double valueProbability = valueFrequency.get(attributeValue) / data.size();
+			Float valueProbability = valueFrequency.get(attributeValue) / data.size();
 			
 			// Create subset of data which only includes records where the split attribute
 			// has this attributeValue
-			ArrayList<ArrayList<Float>> subset = 
-				this.getDatapointSubsetByAttributeValue(data, splitAttribute, attributeValue);
+			ArrayList<ArrayList<FloatWritable>> subset = 
+				getDatapointSubsetByAttributeValue(data, splitAttribute, new FloatWritable(attributeValue));
 			
 			// Update subset entropy with entropy of this subset relative to the attribute
 			// of classification, multiplied by the probability of this value occurring in
 			// the training set
-			subsetEntropy += valueProbability * this.calculateEntropy(subset, targetAttribute);
+			subsetEntropy += valueProbability * calculateEntropy(subset, targetAttribute).get();
 			
 		}
 		
 		// Return the difference of the entropy of the whole data set with respect to the 
 		// attribute upon which to classify, with the entropy of the split attribute
-		return (this.calculateEntropy(data, targetAttribute) - subsetEntropy);
+		return (calculateEntropy(data, targetAttribute).get() - subsetEntropy);
 	}
 	
 	/**
@@ -457,16 +451,16 @@ implements Tool {
 	 * @param Float targetValue
 	 * @return AList<AList<Float>>
 	 */
-	public ArrayList<ArrayList<Float>> getDatapointSubsetByAttributeValue (
-			ArrayList<ArrayList<Float>> data,
-			Integer attributeId, Float targetValue) {
+	public ArrayList<ArrayList<FloatWritable>> getDatapointSubsetByAttributeValue (
+			ArrayList<ArrayList<FloatWritable>> data,
+			IntWritable attributeId, FloatWritable targetValue) {
 		
 		// Initialize list of example values
-		ArrayList<ArrayList<Float>> subsetValues = new ArrayList<ArrayList<Float>>();
+		ArrayList<ArrayList<FloatWritable>> subsetValues = new ArrayList<ArrayList<FloatWritable>>();
 		
 		// Add only datapoints for which the value of attributeId is attributeValue
-		for (ArrayList<Float> datapoint : data) {
-			if (datapoint.get(attributeId).floatValue() == targetValue.floatValue()) {
+		for (ArrayList<FloatWritable> datapoint : data) {
+			if (datapoint.get(attributeId.get()).get() == targetValue.get()) {
 				subsetValues.add(datapoint);
 			}
 		}
@@ -486,15 +480,15 @@ implements Tool {
 	public LongWritable classifyDatapoint (ArrayList<Float> datapoint) {
 		
 		// Attribute on which to base decision
-		Integer classifyBy = ((IntWritable) ((MapWritable)this.getVertexValue()).get(new Text("classifyBy"))).get();
+		Integer classifyBy = ((IntWritable) classificationData.get(new Text("classifyBy"))).get();
 		
 		// Value of split attribute in datapoint
 		Float value = datapoint.get(classifyBy);
 		
 		// Check for attribute value in child nodes
-		if (((MapWritable)this.getVertexValue().get(new Text("children"))).containsKey(new FloatWritable(value))) {
+		if (((MapWritable)classificationData.get(new Text("children"))).containsKey(new FloatWritable(value))) {
 			
-			return (LongWritable) ((MapWritable)this.getVertexValue().get(new Text("children"))).get(new FloatWritable(value));
+			return (LongWritable) ((MapWritable)classificationData.get(new Text("children"))).get(new FloatWritable(value));
 		}
 		
 		// Return destination as root vertex if needed
@@ -504,7 +498,7 @@ implements Tool {
 	
 	/* End DecisionTreeNode behavior */
 	
-	/* Begin Data Node Behavior */
+	/* Begin Data Node Classification Behavior */
 	
 	/**
 	 * verifyClassification
@@ -518,7 +512,7 @@ implements Tool {
 		int targetAttribute = getConf().getInt(TARGET_ATTRIBUTE_POSITION, -1);
 	
 		// Get expected value of target attribute
-		ArrayWritable data = (ArrayWritable) ((MapWritable)this.getVertexValue()).get(new Text("data"));
+		ArrayWritable data = (ArrayWritable) this.classificationData.get(new Text("data"));
 		Float expectedValue = ((FloatWritable)data.get()[targetAttribute]).get();
 		
 		return expectedValue == classification;
@@ -526,28 +520,16 @@ implements Tool {
 	
 	/* End Data Node Behavior */
 	
-	private void updateVertexValue (Writable key, Writable value) {
-		
-		MapWritable currentValue = getVertexValue();
-		
-		currentValue.put(key, value);
-		
-		setVertexValue(currentValue);
-		
-	}
-	
-	// addChildNode
-	
 	@Override
 	public void compute(Iterator<MapWritable> msgIterator)
 			throws IOException {
 		
 		/* Begin Data Vertex Computation */
 		
-		if (getVertexType() == "D") {
+		if (getVertexValue().toString() == "D") {
 		
 			// First superstep : Training/Testing and Send Training Data
-			if (getSuperstep() == 0) {
+		/*	if (getSuperstep() == 0) {
 				
 				// First task is to specify own type as vertex with either
 				// D or DT (testing) based on position in input set
@@ -574,10 +556,10 @@ implements Tool {
 					updateVertexValue(new Text("type"), new Text("DT"));
 					
 				}
-			}
+			}*/
 		}
 		
-		if (getVertexType() == "DT") {
+		if (getVertexValue().toString() == "DT") {
 		
 			// Testing data vertices send message with testing data to root node
 			if (getSuperstep() == 1) {
@@ -587,7 +569,7 @@ implements Tool {
 				
 				testingData.put(new Text("vertexType"), new Text("test"));
 				testingData.put(new Text("data"), 
-						(ArrayWritable) getVertexValue().get(new Text("data")));
+						(ArrayWritable) classificationData.get(new Text("data")));
 				
 				sendMsgToAllEdges(testingData);
 				
@@ -625,7 +607,7 @@ implements Tool {
 		
 		/* Begin Tree Vertex Computation */
 		
-		if (this.getVertexType() == "T") {
+		if (getVertexValue().toString() == "T") {
 			
 			// On SuperStep 1, root receiving a bunch of training data
 			if (getSuperstep() == 1) {
@@ -845,7 +827,7 @@ implements Tool {
 				
 				// Storage container for decision tree node
 				MapWritable representative = new MapWritable();
-				// FIXME Refactor
+				representative.put(new Text("accuracy"), new FloatWritable(0.0f));
 				((DecisionTreeNodeVertex)vertex).setData(representative);
 				
 				// Set edges
@@ -878,7 +860,7 @@ implements Tool {
 				dataVertex.put(new Text("data"), new ArrayWritable(FloatWritable.class, attributes));
 				((DecisionTreeNodeVertex)vertex).setData(dataVertex);
 				
-				// Create edge map FIXME edgeweight
+				// Create edge map
 				Map<LongWritable, FloatWritable> edges = Maps.newHashMap();
 				edges.put(new LongWritable(-1L), new FloatWritable(1.0f));
 				
@@ -941,9 +923,9 @@ implements Tool {
 			// Only record current vertex if it is a tree node, vs a training/testing set node
 			if (vertex.getVertexValue().toString() == "R") {
 				
-				//FIXME Double accuracy = ((DoubleWritable) vertex.getVertexValue().get("accuracy")).get();
+				FloatWritable accuracy = (FloatWritable) ((DecisionTreeNodeVertex)vertex).classificationData.get(new Text("accuracy"));
 				
-				Text output = new Text("Just a test output");
+				Text output = new Text("Classified Correctly " + accuracy.get() + "%");
 				getRecordWriter().write(new Text(output), null);
 				
 			}
