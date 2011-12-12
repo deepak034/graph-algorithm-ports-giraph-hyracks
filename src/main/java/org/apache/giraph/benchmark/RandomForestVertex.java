@@ -72,7 +72,34 @@ implements Tool {
 	@Override
 	public void compute(Iterator<MapWritable> msgIterator) throws IOException {
 		
+		/* Start representative vertex behavior */
+		if (getVertexValue().toString() == "R") { 
 	
+			voteToHalt();
+		}
+		/* End representative vertex behavior */
+		
+		/* Start tree classifier vertex behavior */
+		if (getVertexValue().toString() == "C") {
+		
+			voteToHalt();
+		
+		}
+		/* End classifier vertex behavior */
+		
+		/* Start training vertex behavior */
+		if (getVertexValue().toString() == "TR") {
+			
+			voteToHalt();
+		}
+		/* End training vertex behavior */
+
+		/* Start testing vertex behavior */
+		if (getVertexValue().toString() == "TE") {
+	
+			voteToHalt();
+		}
+		/* End testing vertex behavior */
 		
 	}
 
@@ -271,10 +298,10 @@ implements Tool {
 	}
 	
 	public static class RandomForestVertexOutputFormat extends
-	TextVertexOutputFormat<LongWritable, MapWritable, FloatWritable>{
+	TextVertexOutputFormat<LongWritable, Text, FloatWritable>{
 
 		@Override
-		public VertexWriter<LongWritable, MapWritable, FloatWritable> 
+		public VertexWriter<LongWritable, Text, FloatWritable> 
 		createVertexWriter(TaskAttemptContext context) throws IOException,
 				InterruptedException {
 			RecordWriter<Text, Text> recordWriter = textOutputFormat.getRecordWriter(context);
@@ -284,7 +311,7 @@ implements Tool {
 	}
 	
 	public static class RandomForestVertexWriter extends
-	TextVertexWriter<LongWritable, MapWritable, FloatWritable> {
+	TextVertexWriter<LongWritable, Text, FloatWritable> {
 
 		public RandomForestVertexWriter(
 				RecordWriter<Text, Text> lineRecordWriter) {
@@ -293,11 +320,11 @@ implements Tool {
 
 		@Override
 		public void writeVertex(
-				BasicVertex<LongWritable, MapWritable, FloatWritable, ?> vertex)
+				BasicVertex<LongWritable, Text, FloatWritable, ?> vertex)
 		throws IOException, InterruptedException {
 
 			// Only record current vertex if it is a tree node, vs a training/testing set node
-			if (vertex.getVertexValue().get("type").toString() == "R") {
+			if (vertex.getVertexValue().toString() == "R") {
 				
 				//Double accuracy = ((DoubleWritable) vertex.getVertexValue().get("accuracy")).get();
 				
